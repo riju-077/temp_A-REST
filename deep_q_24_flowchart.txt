@@ -1,0 +1,498 @@
+
+================================================================================
+                    DEEP_Q_24.PY — COMPLETE FLOWCHART
+================================================================================
+
+
+================================================================================
+PART 1: SETUP (Lines 1-101)
+================================================================================
+
+    [Start of File]
+          |
+          v
+    +--------------------------+
+    | Import Libraries         |
+    | - amzn_api_interaction   |
+    | - querycute              |
+    | - PSTtime                |
+    | - new_deep_module (DQN)  |
+    | - numpy, sklearn         |
+    +--------------------------+
+          |
+          v
+    +--------------------------+
+    | Create API Objects       |
+    | sb = SponsoredBrands()   |
+    | sp = SponsoredProducts() |
+    | sd = SponsoredDisplays() |
+    +--------------------------+
+          |
+          v
+    +--------------------------+
+    | Create DB Connection     |
+    | qcm = Querycute(         |
+    |   "modeling_db")         |
+    +--------------------------+
+          |
+          v
+    +-----------------------------+
+    | Build path_dict             |
+    | 13 lockers, 4 files each:   |
+    |                             |
+    | SP_BID, SP_TOS, SP_PP,      |
+    | SP_ROS, SPT_TOS, SPT_PP,    |
+    | SPT_ROS, SV_TOS, SV_PP,     |
+    | SV_ROS, SV, SD, global      |
+    |                             |
+    | Each has:                   |
+    |  - policy_model.pth         |
+    |  - target_model.pth         |
+    |  - replay_buffer.pkl        |
+    |  - temp_buffer.pkl          |
+    +-----------------------------+
+
+
+================================================================================
+PART 2: HELPER FUNCTIONS (Lines 103-260)
+================================================================================
+
+    +----------------------------------+
+    | scaler_ctr = StandardScaler()    |  Trained on hardcoded past CTR values
+    | scaler_cvr = StandardScaler()    |  Trained on hardcoded past CVR values
+    +----------------------------------+
+          |
+          v
+    +----------------------------------+
+    | scaling_ctr(val)                 |  Converts raw CTR to scaled value
+    | scaling_cvr(val)                 |  Converts raw CVR to scaled value
+    +----------------------------------+
+          |
+          v
+    +----------------------------------+
+    | bid_from_action(min, step, act)  |  Action number --> Dollar bid
+    |   e.g., action 15 --> $3.30      |  Formula: min + step * action
+    +----------------------------------+
+          |
+          v
+    +----------------------------------+
+    | action_from_bid(min, step, bid)  |  Dollar bid --> Action number
+    |   e.g., $3.30 --> action 15      |  Formula: (bid - min) / step
+    +----------------------------------+
+          |
+          v
+    +----------------------------------+
+    | negative_mapping(imp, clicks)    |  CTR formula with 3 cases:
+    |   imp=0 --> 0                    |  imp>0, clicks=0 --> (1/imp)-1
+    |   else --> clicks/imp            |
+    +----------------------------------+
+          |
+          v
+    +----------------------------------+
+    | decide_bucket(val, lo, hi, n)    |  Puts a value into a bucket
+    |   Used for reward histograms     |  e.g., reward 0.35 --> bucket 67
+    +----------------------------------+
+          |
+          v
+    +----------------------------------+
+    | get_videos_bids(keywordIds)      |  Gets current SV bids from Amazon API
+    | get_enabled_video_campaigns()    |  Gets enabled SV campaigns + budgets
+    +----------------------------------+
+          |
+          v
+    +----------------------------------+
+    | scale_imp(impression_value)      |  Scales raw impression change to 0-1
+    |   Used as penalty in reward      |  (YOUR modified function)
+    +----------------------------------+
+
+
+================================================================================
+PART 3: ENGINE FUNCTIONS — THE 7 ENGINES
+================================================================================
+
+Each engine follows the SAME 8-step pattern:
+
+    +--------------------------------------------------+
+    | STEP 1: SQL Query                                |
+    |   Read Q_MASTER (settings)                       |
+    |   Read TRAFFIC table (clicks, impressions)       |
+    |   Read CONVERSION table (sales)                  |
+    |   Read AMZN_SALES_DATA (store units)             |
+    +--------------------------------------------------+
+          |
+          v
+    +--------------------------------------------------+
+    | STEP 2: Read Config + Get Current Bids           |
+    |   Get epsilon, learning_rate, gamma from SQL     |
+    |   Call Amazon API for current actual bids/boosts |
+    +--------------------------------------------------+
+          |
+          v
+    +--------------------------------------------------+
+    | STEP 3: Grade Last Round (Delayed Grading)       |
+    |   Open temp_buffer (ungraded homework)           |
+    |   Fill in reward + next_state from new data      |
+    |   Move completed entries to replay_buffer        |
+    +--------------------------------------------------+
+          |
+          v
+    +--------------------------------------------------+
+    | STEP 4: Create AI Brains                         |
+    |   dqn_agent = DQNAgent(specialist)               |
+    |   global_dqn_agent = DQNAgent(generalist)        |
+    +--------------------------------------------------+
+          |
+          v
+    +--------------------------------------------------+
+    | STEP 5: Train                                    |
+    |   for _ in range(5):                             |
+    |       dqn_agent.train_step()                     |
+    |       global_dqn_agent.train_step()              |
+    +--------------------------------------------------+
+          |
+          v
+    +--------------------------------------------------+
+    | STEP 6: Pick Actions (FOR EACH KEYWORD/CAMPAIGN) |
+    |                                                  |
+    |   a) Build state vector (6 numbers)              |
+    |   b) Ask brain for action                        |
+    |      (specialist or generalist based on          |
+    |       COMBINEDDEEPQSWITCH)                       |
+    |   c) Convert action to bid/boost                 |
+    |   d) Cap bid within BASEBIDLOWER/UPPER           |
+    |   e) CVR safety valve (bad CVR = force $0.30)    |
+    |   f) Save to temp_buffer (ungraded, reward=None) |
+    |   g) Add to bid_update_list                      |
+    +--------------------------------------------------+
+          |
+          v
+    +--------------------------------------------------+
+    | STEP 7: Push to Amazon                           |
+    |   Send bid_update_list to Amazon API             |
+    |   sb.UPDATE_KEYWORDS_SB() for SV bids            |
+    |   sp.UPDATE_KEYWORDS_SP() for SP bids            |
+    |   sp.UPDATE_CAMPAIGNS_SP() for SP/SPT boosts     |
+    |   sb.UPDATE_CAMPAIGNS_SB() for SV boosts         |
+    |   sd.UPDATE_KEYWORDS_SD() for SD bids            |
+    +--------------------------------------------------+
+          |
+          v
+    +--------------------------------------------------+
+    | STEP 8: Log Results                              |
+    |   Write to .txt log file                         |
+    |   Return avg_reward + reward_distribution        |
+    +--------------------------------------------------+
+
+
+================================================================================
+THE 7 ENGINES — WHO DOES WHAT
+================================================================================
+
+                         BIDDING ENGINES
+                    (control $$$ per click)
+    +---------------------------------------------------------+
+    |                                                         |
+    |  ENGINE 1: deep_q_videos()         [Lines 261-692]      |
+    |    - Campaign Type: SV                                  |
+    |    - Controls: Keyword BIDS ($0.30 - $15.90)            |
+    |    - Brain: path_dict["SV"] + path_dict["global"]       |
+    |    - Reads: AS_SB_TRAFFIC, AS_SB_CONVERSION             |
+    |    - Pushes: sb.UPDATE_KEYWORDS_SB()                    |
+    |    - Log: sv_deepq.txt                                  |
+    |    - Runs directly (not through run_deep_q_for_sp_spt)  |
+    |                                                         |
+    |  ENGINE 2: deep_q_sp_bid()         [Lines 2132-2560]    |
+    |    - Campaign Type: SP                                  |
+    |    - Controls: Keyword BIDS ($0.30 - $15.90)            |
+    |    - Brain: path_dict["SP_BID"] + path_dict["global"]   |
+    |    - Reads: AS_SP_TRAFFIC, AS_SP_CONVERSION             |
+    |    - Pushes: sp.UPDATE_KEYWORDS_SP()                    |
+    |    - Log: sp_bid_deepq.txt                              |
+    |    - Runs directly (not through run_deep_q_for_sp_spt)  |
+    |                                                         |
+    |  ENGINE 3: deep_q_display()        [Lines 712-1312]     |
+    |    - Campaign Type: SD                                  |
+    |    - Controls: Target BIDS ($0.30 - $15.90)             |
+    |    - Brain: path_dict["SD"] + path_dict["global"]       |
+    |    - Reads: SD traffic/conversion tables                |
+    |    - Pushes: sd.UPDATE_KEYWORDS_SD()                    |
+    |    - Log: sd_deepq.txt                                  |
+    |    - Runs directly (not through run_deep_q_for_sp_spt)  |
+    |                                                         |
+    +---------------------------------------------------------+
+
+
+                       PLACEMENT ENGINES
+                (control WHERE ads show — TOS/PP/ROS)
+    +---------------------------------------------------------+
+    |                                                         |
+    |  ENGINE 4: deep_q_sp()             [Lines 1666-2130]    |
+    |    - Campaign Type: SP                                  |
+    |    - Controls: Placement BOOSTS (TOS, PP, ROS)          |
+    |    - Brains: path_dict["SP_TOS"], ["SP_PP"], ["SP_ROS"] |
+    |              + path_dict["global"]                      |
+    |    - Reads: AS_SP_TRAFFIC, AS_SP_CONVERSION             |
+    |    - Pushes: sp.UPDATE_CAMPAIGNS_SP()                   |
+    |    - Log: sp_deepq.txt                                  |
+    |    - Calls run_deep_q_for_sp_spt() 3 times             |
+    |      (once for TOS, once for PP, once for ROS)          |
+    |                                                         |
+    |  ENGINE 5: deep_q_spt()            [Lines 2564-2963]    |
+    |    - Campaign Type: SPT                                 |
+    |    - Controls: Placement BOOSTS (TOS, PP, ROS)          |
+    |    - Brains: path_dict["SPT_TOS"],["SPT_PP"],["SPT_ROS"]|
+    |              + path_dict["global"]                      |
+    |    - Reads: AS_SP_TRAFFIC, AS_SP_CONVERSION             |
+    |    - Pushes: sp.UPDATE_CAMPAIGNS_SP()                   |
+    |    - Log: spt_deepq.txt                                 |
+    |    - Calls run_deep_q_for_sp_spt() 3 times             |
+    |                                                         |
+    |  ENGINE 6: deep_q_videos_placement() [Lines 2965-3393]  |
+    |    - Campaign Type: SV                                  |
+    |    - Controls: Placement BOOSTS (TOS, PP, ROS)          |
+    |    - Brains: path_dict["SV_TOS"],["SV_PP"],["SV_ROS"]  |
+    |              + path_dict["global"]                      |
+    |    - Reads: AS_SB_TRAFFIC, AS_SB_CONVERSION             |
+    |    - Pushes: sb.UPDATE_CAMPAIGNS_SB()                   |
+    |    - Log: sv_boost_deepq.txt                            |
+    |    - Calls run_deep_q_for_sp_spt() 3 times             |
+    |                                                         |
+    +---------------------------------------------------------+
+
+
+                       REUSABLE HELPER ENGINE
+    +---------------------------------------------------------+
+    |                                                         |
+    |  ENGINE 7: run_deep_q_for_sp_spt() [Lines 1363-1662]   |
+    |    - NOT called by main loop directly                   |
+    |    - Called BY engines 4, 5, 6                          |
+    |    - Handles ONE placement at a time                    |
+    |    - Contains the 8-step logic for placements           |
+    |    - Uses scale_imp() in reward (YOUR function)         |
+    |                                                         |
+    +---------------------------------------------------------+
+
+
+================================================================================
+PART 4: MAIN LOOP (Lines 3395-3561)
+================================================================================
+
+    [Program Starts]
+          |
+          v
+    +==================================+
+    ||     while True:                 ||  <--- RUNS FOREVER
+    +==================================+
+          |
+          v
+    +----------------------------------+
+    | Read Q_MASTER                    |
+    | Build interval_dict:             |
+    |   SV: [5 min, monitor ON/OFF]   |
+    |   SP: [10 min, monitor ON/OFF]  |
+    |   SPT: [10 min, monitor ON/OFF] |
+    |   SD: [5 min, monitor ON/OFF]   |
+    +----------------------------------+
+          |
+          v
+    +----------------------------------+
+    | Get current_minute               |
+    | e.g., 3:25 PM --> minute = 25   |
+    |                                  |
+    | to_monitor = (minute != 0)      |
+    |   :00 --> False (all keywords)  |
+    |   :01-:59 --> True (struggling) |
+    +----------------------------------+
+          |
+          v
+    +----------------------------------------------+
+    | CHECK: Is it time for SV? (minute % 5 == 0)  |
+    |                                              |
+    |   YES --> Run deep_q_videos()                |
+    |           Run deep_q_videos_placement()      |
+    |   NO  --> Skip                               |
+    +----------------------------------------------+
+          |
+          v
+    +----------------------------------------------+
+    | CHECK: Is it time for SP? (minute % 10 == 0) |
+    |                                              |
+    |   YES --> Run deep_q_sp()                    |
+    |           Run deep_q_sp_bid()                |
+    |   NO  --> Skip                               |
+    +----------------------------------------------+
+          |
+          v
+    +----------------------------------------------+
+    | CHECK: Is it time for SPT? (minute % 10 == 0)|
+    |                                              |
+    |   YES --> Run deep_q_spt()                   |
+    |   NO  --> Skip                               |
+    +----------------------------------------------+
+          |
+          v
+    +----------------------------------------------+
+    | CHECK: Is it time for SD? (minute % 5 == 0)  |
+    |                                              |
+    |   YES --> Run deep_q_display()               |
+    |   NO  --> Skip                               |
+    +----------------------------------------------+
+          |
+          v
+    +----------------------------------------------+
+    | SAVE REPORTS TO DB:                          |
+    |                                              |
+    | 1. Reward distributions (histograms)         |
+    |    --> deepq_distributions table             |
+    |                                              |
+    | 2. Average reward                            |
+    |    --> deepq_reward_table                    |
+    |                                              |
+    | 3. Epsilon (exploration rate)                |
+    |    --> deepq_epsilon_table                   |
+    +----------------------------------------------+
+          |
+          v
+    +----------------------------------------------+
+    | SLEEP until next minute                      |
+    |   e.g., if 3:25:23, sleep 37 seconds         |
+    |   Wake up at 3:26:00                         |
+    +----------------------------------------------+
+          |
+          v
+    +----------------------------------------------+
+    | If ANY error happened:                       |
+    |   Write error to deepq_central_error.txt     |
+    |   DON'T crash — keep running                 |
+    +----------------------------------------------+
+          |
+          |  (loop back to top)
+          v
+    +==================================+
+    ||     while True:  (next minute)  ||
+    +==================================+
+
+
+================================================================================
+PART 5: ONE-HOUR TIMELINE EXAMPLE
+================================================================================
+
+    3:00 PM  --> SV + SP + SPT + SD (ALL engines, ALL keywords, monitor=OFF)
+    3:01 PM  --> nothing
+    3:02 PM  --> nothing
+    3:03 PM  --> nothing
+    3:04 PM  --> nothing
+    3:05 PM  --> SV + SD (monitor=ON, only struggling keywords)
+    3:06 PM  --> nothing
+    3:07 PM  --> nothing
+    3:08 PM  --> nothing
+    3:09 PM  --> nothing
+    3:10 PM  --> SV + SD + SP + SPT (monitor=ON)
+    3:15 PM  --> SV + SD (monitor=ON)
+    3:20 PM  --> SV + SD + SP + SPT (monitor=ON)
+    3:25 PM  --> SV + SD (monitor=ON)
+    3:30 PM  --> SV + SD + SP + SPT (monitor=ON)
+    3:35 PM  --> SV + SD (monitor=ON)
+    3:40 PM  --> SV + SD + SP + SPT (monitor=ON)
+    3:45 PM  --> SV + SD (monitor=ON)
+    3:50 PM  --> SV + SD + SP + SPT (monitor=ON)
+    3:55 PM  --> SV + SD (monitor=ON)
+    4:00 PM  --> SV + SP + SPT + SD (ALL engines, ALL keywords, monitor=OFF)
+
+
+================================================================================
+PART 6: DATA FLOW — WHAT READS WHAT
+================================================================================
+
+    +------------------+        +-------------------+
+    | AMAZON ADS       |        | UI (Web Dashboard)|
+    | (the ad platform)|        | (humans click)    |
+    +--------+---------+        +---------+---------+
+             |                            |
+             | Import script              | apis.py
+             | pulls hourly               | saves settings
+             v                            v
+    +------------------+        +-------------------+
+    | TRAFFIC tables   |        | Q_MASTER          |
+    | (AS_SB_TRAFFIC,  |        | (all settings     |
+    |  AS_SP_TRAFFIC)  |        |  for all          |
+    +------------------+        |  campaigns)       |
+    | CONVERSION tables|        +-------------------+
+    | (AS_SB_CONVERSION|                  |
+    |  AS_SP_CONVERSION|                  |
+    +------------------+                  |
+    | AMZN_SALES_DATA  |                  |
+    | (store sales)    |                  |
+    +--------+---------+                  |
+             |                            |
+             |   deep_q_24.py reads BOTH  |
+             +----------+  +-------------+
+                        |  |
+                        v  v
+               +------------------+
+               | deep_q_24.py     |
+               | (AI engine)      |
+               +--------+---------+
+                        |
+              +---------+---------+
+              |                   |
+              v                   v
+    +------------------+  +-------------------+
+    | AMAZON API       |  | RESULT tables     |
+    | (push new bids)  |  | deepq_reward_table|
+    |                  |  | deepq_distributions|
+    |  UPDATE_KEYWORDS |  | deepq_epsilon_table|
+    |  UPDATE_CAMPAIGNS|  |                   |
+    +------------------+  +---------+---------+
+                                    |
+                                    | UI reads these
+                                    v
+                          +-------------------+
+                          | UI (shows charts, |
+                          |  reward graphs,   |
+                          |  monitoring)      |
+                          +-------------------+
+
+
+================================================================================
+PART 7: BRAIN MAP — ALL 13 SPECIALIST BRAINS + 1 GLOBAL
+================================================================================
+
+    BIDDING BRAINS (3):
+    +-------+---------------------------+---------------------+
+    | Brain | Used By                   | What It Decides     |
+    +-------+---------------------------+---------------------+
+    | SV    | deep_q_videos()           | SV keyword bids     |
+    | SP_BID| deep_q_sp_bid()           | SP keyword bids     |
+    | SD    | deep_q_display()          | SD target bids      |
+    +-------+---------------------------+---------------------+
+
+    PLACEMENT BRAINS (9):
+    +-------+---------------------------+---------------------+
+    | Brain | Used By                   | What It Decides     |
+    +-------+---------------------------+---------------------+
+    | SP_TOS| deep_q_sp() via helper    | SP Top of Search    |
+    | SP_PP | deep_q_sp() via helper    | SP Product Page     |
+    | SP_ROS| deep_q_sp() via helper    | SP Rest of Search   |
+    | SPT_TOS| deep_q_spt() via helper  | SPT Top of Search   |
+    | SPT_PP| deep_q_spt() via helper   | SPT Product Page    |
+    | SPT_ROS| deep_q_spt() via helper  | SPT Rest of Search  |
+    | SV_TOS| deep_q_videos_placement() | SV Top of Search    |
+    | SV_PP | deep_q_videos_placement() | SV Product Page     |
+    | SV_ROS| deep_q_videos_placement() | SV Rest of Search   |
+    +-------+---------------------------+---------------------+
+
+    GLOBAL BRAIN (1):
+    +-------+---------------------------+---------------------+
+    | global| ALL engines               | Backup brain used   |
+    |       |                           | when COMBINEDDEEP   |
+    |       |                           | QSWITCH = 1         |
+    +-------+---------------------------+---------------------+
+
+    TOTAL: 13 specialist + 1 global = 13 lockers in path_dict
+    Each locker has 4 files = 13 x 4 = 52 files on disk
+
+
+================================================================================
+END OF FLOWCHART
+================================================================================
