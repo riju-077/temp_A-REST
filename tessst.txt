@@ -1,0 +1,15 @@
+The issue is the pending buffer reward formula at line 427. It's the one that feeds the specialist brain, and it only uses 2 out of 5 weights:                                         
+  
+  reward = CTRWEIGHT * DELTA_CTR + BUDGETWEIGHT * (del_cvr)                                                                                                                                                                                                                                                                                                                       
+  3 weights are completely missing from this formula:
+  - CONVWEIGHT — not used (even though UNITS data is available in the query)
+  - CPCWEIGHT — not used (even though CURR_CPC, PREV_CPC data is available)
+  - CVRWEIGHT — not used (even though CONV, CLICK data is available)
+
+  The query returns ALL the data needed for all 5 terms. The full formula at line 537 (global brain) uses all 5. But line 427 (specialist brain) just ignores 3 of them.
+
+  On top of that, even the 2 terms that ARE used have a loophole — negative_mapping returns 0 when clicks = 0. So for keywords with no clicks in a 5-min window (which is common for SV),
+   the entire BUDGETWEIGHT term also becomes 0, and the reward collapses to just CTRWEIGHT × DELTA_CTR.
+
+  So the root cause is: the line 427 formula was written as a "shortcut" version and never updated to match the full formula at line 537. The UI shows those weights as configurable, but
+   3 of them do absolutely nothing for the specialist brain.
