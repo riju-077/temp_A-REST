@@ -1,0 +1,1183 @@
+  → Only 2 weights (the bug you found!)
+
+  REWARD #2 — FULL (comes AFTER training, during action selection loop)
+      reward = CTRWEIGHT × ... + CPCWEIGHT × ... + CVRWEIGHT × ... + BUDGETWEIGHT × ...
+      → Calculated for THIS round
+      → Goes to GLOBAL brain's memories
+      → More weights used
+
+  WHY TWO?
+      Reward #1 = grading YESTERDAY's test (filling in old blanks)
+      Reward #2 = grading TODAY's situation (for the global brain to remember)
+
+  ---
+  The FULL Pattern All Engines Follow
+
+  ┌─────────────────────────────────────────────────────────┐
+  │  1. OPEN LOCKERS         → 8 file paths (4 specialist   │
+  │                             + 4 global)                  │
+  │                                                          │
+  │  2. GRADE LAST ROUND     → pending_buffer_update_data    │
+  │     (Reward #1 - simple)    fills in yesterday's blanks  │
+  │     temp_buffer.update()    moves to replay_buffer       │
+  │                                                          │
+  │  3. CREATE 2 BRAINS      → dqn_agent (specialist)        │
+  │                          → global_dqn_agent (generalist) │
+  │                                                          │
+  │  4. TRAIN BOTH           → learn from replay memories    │
+  │                                                          │
+  │  5. FOR EACH ITEM:                                       │
+  │     ├── Calculate Reward #2 (full, for global brain)     │
+  │     ├── Ask brain for action                             │
+  │     │   ├── BID engine: action → dollar bid              │
+  │     │   └── PLACEMENT engine: action → boost %           │
+  │     ├── Apply safety caps (min/max limits)               │
+  │     ├── Apply CVR safety valve                           │
+  │     └── Save to temp_buffer (reward=???, next=???)       │
+  │                                                          │
+  │  6. UPDATE GLOBAL BUFFER → global_temp_buffer.update()   │
+  │                                                          │
+  │  7. PUSH TO AMAZON       → bid engines: UPDATE_KEYWORDS  │
+  │                          → placement engines: caller does │
+  │                                                          │
+  │  8. RETURN RESULTS       → update dict, log, reward,     │
+  │                             reward_dist, loss             │
+  └─────────────────────────────────────────────────────────┘
+
+  ---
+  Where You Were Slightly Off
+
+  The only small correction: you said "a new reward function comes AFTER training." That's Reward #2, and it's not exactly "after training" in purpose — it's calculated during the      
+  action loop (Step 5) where the AI decides new bids/boosts. It happens to come after training in the code, but its job is to record THIS round's reward for the global brain, not to    
+  evaluate the training.
+
+  Other than that — you nailed the pattern!
+
+✻ Cogitated for 40s
+
+❯ wht is meant by two brains? specialist and generalist? like are there neural network differrent or wht? wht differntiate them that we have two? is dqn agent for specaist? and if      
+  it is the wht it is wht it means? and global dqn agent for generaist? also like specialist is before traing and generalist is after taring and which one uses which reward?           
+                                                                                                                                                                                         ● Great questions! Let me answer one by one.                                                                                                                                             
+                                                                                                                                                                                           ---                                                                                                                                                                                      Are they different neural networks?                                                                                                                                                    
+                                                                                                                                                                                           YES. They are two SEPARATE neural networks. Same structure (6 inputs → 79 outputs), but different memories and different brain files.                                                  
+
+  Think of it like two students in the same school:
+  - Same classroom, same syllabus, same exam format
+  - But each has their own notebook and own brain with different experiences
+
+  SPECIALIST (dqn_agent)                    GENERALIST (global_dqn_agent)
+  ┌──────────────────────┐                  ┌──────────────────────┐
+  │  Neural Network      │                  │  Neural Network      │
+  │  [6]→64→64→64→79     │                  │  [6]→64→64→64→79     │
+  │                      │                  │                      │
+  │  Brain file:         │                  │  Brain file:          │
+  │  SPT_TOS_policy.pth  │                  │  GLOBAL_policy.pth   │
+  │                      │                  │                      │
+  │  Memories:           │                  │  Memories:           │
+  │  SPT_TOS_replay.pkl  │                  │  GLOBAL_replay.pkl   │
+  │  (only SPT TOS data) │                  │  (ALL data mixed)    │
+  └──────────────────────┘                  └──────────────────────┘
+
+  ---
+  What makes them different?
+
+  Their FOOD (data they learn from).
+
+  Same brain structure. Different diet.
+
+  SPECIALIST eats food from ONE restaurant only:
+      "I only study SPT + Top of Search campaigns"
+      "I've seen 500 SPT_TOS experiences"
+      "I know NOTHING about SD, SP, SV, PP, ROS"
+
+      Like a HEART SURGEON — only does hearts, knows hearts deeply
+
+  GENERALIST eats food from ALL 9 restaurants:
+      "I study SP_TOS, SP_PP, SP_ROS, SPT_TOS, SPT_PP, SPT_ROS, SV_TOS, SV_PP, SV_ROS"
+      "I've seen 5000+ experiences from everywhere"
+      "I know a little about everything"
+
+      Like a GENERAL DOCTOR — sees all patients, knows patterns across everything
+
+  ---
+  Yes, dqn_agent = specialist, global_dqn_agent = generalist
+
+  dqn_agent = DQNAgent(
+      replay_path = SPT_TOS_replay.pkl      ← eats ONLY SPT_TOS memories
+      policy_net_path = SPT_TOS_policy.pth  ← has its OWN brain
+  )
+
+  global_dqn_agent = DQNAgent(
+      replay_path = GLOBAL_replay.pkl       ← eats EVERYONE's memories
+      policy_net_path = GLOBAL_policy.pth   ← has its OWN brain
+  )
+
+  ---
+  NO — Both are trained TOGETHER, not before/after
+
+  This is where you were slightly off. They are NOT "specialist before training, generalist after training."
+
+  Both are trained at the SAME time (lines 1488-1494):
+
+  for _ in range(100):
+      loss_1 = dqn_agent.train_step()         ← specialist learns
+      loss_2 = global_dqn_agent.train_step()  ← generalist learns
+
+  Round 1: specialist learns → generalist learns
+  Round 2: specialist learns → generalist learns
+  Round 3: specialist learns → generalist learns
+  ... 100 times
+
+  Both are trained TOGETHER, side by side, 100 iterations each
+
+  ---
+  Which brain uses which reward?
+
+  This is the important part:
+
+  REWARD #1 (simple, 2 weights):
+      reward = CTRWEIGHT × DELTA_CTR + BUDGETWEIGHT × del_cvr
+
+      WHO GETS IT?  → SPECIALIST brain
+      WHEN?         → pending_buffer_update_data (line 1405)
+                    → temp_buffer.update() → goes to specialist's replay_buffer
+                    → specialist trains on THIS reward
+
+
+  REWARD #2 (full, more weights):
+      reward = CTRWEIGHT × ... - CPCWEIGHT × ... + CVRWEIGHT × ... + BUDGETWEIGHT × ...
+
+      WHO GETS IT?  → GLOBAL brain
+      WHEN?         → global_pending_buffer_update_data (line 1549)
+                    → global_temp_buffer.update() → goes to global's replay_buffer
+                    → global trains on THIS reward
+
+  SPECIALIST gets SIMPLE grades     →  learns from simple feedback
+  GLOBAL gets DETAILED grades       →  learns from detailed feedback
+
+  ---
+  Then who actually makes the decision?
+
+  After BOTH are trained, the system asks: "which one should decide?"
+
+  That's the COMBINEDDEEPQSWITCH flag from Q_MASTER (set in UI):
+
+  COMBINEDDEEPQSWITCH = 0
+      → "Use the SPECIALIST. He's the expert for this specific placement."
+
+  COMBINEDDEEPQSWITCH = 1
+      → "Use the GENERALIST. He's seen more data overall."
+
+  # Line 1576
+  action = (
+      dqn_agent.select_action(state)           # specialist picks
+      if not global_deep_q                     # COMBINEDDEEPQSWITCH = 0
+      else global_dqn_agent.select_action(state)  # generalist picks
+                                                # COMBINEDDEEPQSWITCH = 1
+  )
+
+  ---
+  The FULL picture in one diagram:
+
+      ┌─────────── TRAINING PHASE ───────────┐
+      │                                      │
+      │  SPECIALIST              GENERALIST  │
+      │  ┌──────────┐          ┌──────────┐  │
+      │  │ Memories:│          │ Memories:│  │
+      │  │ SPT_TOS  │          │ ALL 9    │  │
+      │  │ only     │          │ types    │  │
+      │  ├──────────┤          ├──────────┤  │
+      │  │ Reward:  │          │ Reward:  │  │
+      │  │ SIMPLE   │          │ FULL     │  │
+      │  │ (2 wts)  │          │ (4 wts)  │  │
+      │  ├──────────┤          ├──────────┤  │
+      │  │ Train    │          │ Train    │  │
+      │  │ 100x     │          │ 100x     │  │
+      │  └──────────┘          └──────────┘  │
+      └──────────────────────────────────────┘
+                       │
+                       ▼
+      ┌─────────── DECISION TIME ────────────┐
+      │                                      │
+      │  COMBINEDDEEPQSWITCH = ?             │
+      │                                      │
+      │  = 0 → Ask SPECIALIST for action     │
+      │  = 1 → Ask GENERALIST for action     │
+      │                                      │
+      │  Only ONE brain decides.             │
+      │  But BOTH were trained.              │
+      └──────────────────────────────────────┘
+
+  Why train both if only one decides? Because the UI can switch COMBINEDDEEPQSWITCH at any time. If they switch from 0 to 1 tomorrow, the global brain is already trained and ready. No  
+  waiting.
+
+  Does this clear up the confusion?
+
+✻ Churned for 38s
+
+❯ in case of placement generalist has knowledge on 9 so generalist consume 9 dataset types and then in case of bid engines? or is it something eleselike generalist has knowlededge      
+  on 9 + 3(bid engines) = 12 data set pr wht?                                                                                                                                           
+                                                                                                                                                                                         ● Great question! Let me check what actually feeds into the global brain.                                                                                                                
+                                                                                                                                                                                           The answer is: ALL of them share the SAME one global brain.                                                                                                                                                                                                                                                                                                                     
+  Look at the file paths:                                                                                                                                                                                                                                                                                                                                                         
+  SPECIALIST lockers — each has its OWN files:
+      SP_TOS    → SP_TOS_policy.pth,    SP_TOS_replay.pkl
+      SP_PP     → SP_PP_policy.pth,     SP_PP_replay.pkl
+      SP_ROS    → SP_ROS_policy.pth,    SP_ROS_replay.pkl
+      SPT_TOS   → SPT_TOS_policy.pth,   SPT_TOS_replay.pkl
+      SPT_PP    → SPT_PP_policy.pth,    SPT_PP_replay.pkl
+      SPT_ROS   → SPT_ROS_policy.pth,   SPT_ROS_replay.pkl
+      SV_TOS    → SV_TOS_policy.pth,    SV_TOS_replay.pkl
+      SV_PP     → SV_PP_policy.pth,     SV_PP_replay.pkl
+      SV_ROS    → SV_ROS_policy.pth,    SV_ROS_replay.pkl
+      SV        → SV_policy.pth,        SV_replay.pkl        (bid engine)
+      SD        → SD_policy.pth,        SD_replay.pkl        (bid engine)
+      SP_BID    → SP_BID_policy.pth,    SP_BID_replay.pkl    (bid engine)
+
+  GLOBAL locker — ONE set shared by EVERYONE:
+      global    → global_policy.pth,    global_replay.pkl
+
+  So every time ANY engine runs, it dumps its data into the same global_replay.pkl:
+
+  deep_q_videos()           → feeds into global_replay.pkl
+  deep_q_display()          → feeds into global_replay.pkl
+  deep_q_sp_bid()           → feeds into global_replay.pkl
+  run_deep_q_for_sp_spt()   → feeds into global_replay.pkl  (called 9 times)
+                                           │
+                                           ▼
+                                ONE big pot of memories
+                                from ALL 12 sources
+
+  So yes — the global brain eats from all 12:
+
+  9 placement engines:  SP_TOS, SP_PP, SP_ROS
+                        SPT_TOS, SPT_PP, SPT_ROS
+                        SV_TOS, SV_PP, SV_ROS
+
+  3 bid engines:        SV (keywords)
+                        SD (targets)
+                        SP_BID (keywords)
+                        ─────────────────
+                        12 total
+
+  The global brain is like a doctor who sees every patient from every department — heart, brain, bones, skin — all mixed into one experience pool. It doesn't care if the data came from 
+  a bid engine or a placement engine. It just sees 6 numbers in, picks 1 of 79 actions out.
+
+❯ ahhhhh everything seems to get mixed and jumbled for me                                                                                                                                                                                          
+● No worries, that's normal! Let me restart this from scratch with a super simple story.                                                                                                    
+  ---                                                                                                                                                                                      Forget everything. Just think of ONE school.
+                                                                                                                                                                                           There's a SCHOOL that teaches kids how to set Amazon ad bids.                                                                                                                          
+
+  The school has 12 STUDENTS:
+      SP_TOS, SP_PP, SP_ROS
+      SPT_TOS, SPT_PP, SPT_ROS
+      SV_TOS, SV_PP, SV_ROS
+      SV_BID, SD_BID, SP_BID
+
+  Each student goes to class, takes a test, gets a grade, and learns from it.
+
+  That's literally the whole system. Now here's the twist:
+
+  ---
+  Each student has TWO notebooks
+
+  NOTEBOOK 1: "My Personal Diary" (specialist)
+      → Only has MY OWN test results
+      → SP_TOS student only writes SP_TOS results here
+      → Nobody else can read or write in it
+
+  NOTEBOOK 2: "The Class Shared Notebook" (global)
+      → ALL 12 students write in the SAME notebook
+      → SP_TOS writes here, SPT_PP writes here, SV_BID writes here...
+      → Everyone's results are mixed together
+
+  That's it. That's the two brains:
+  - Specialist = my personal diary
+  - Global = the shared notebook everyone writes in
+
+  ---
+  Why two notebooks?
+
+  PERSONAL DIARY (specialist):
+      + I only see MY kind of problems
+      + I become a DEEP expert on my type
+      - But I have very FEW entries (maybe 500)
+      - If I'm new, I have almost NOTHING to learn from
+
+  SHARED NOTEBOOK (global):
+      + TONS of entries from all 12 students (maybe 5000+)
+      + Even a new student can learn from others' experience
+      - But it's a MIX of everything, not specialized
+
+  ---
+  When it's test time, the TEACHER picks which notebook to use
+
+  COMBINEDDEEPQSWITCH = 0
+      → "Use your PERSONAL diary to answer"
+      → The student relies on their own experience
+
+  COMBINEDDEEPQSWITCH = 1
+      → "Use the SHARED notebook to answer"
+      → The student relies on everyone's experience
+
+  ---
+  That's ALL the "two brains" means
+
+  Brain 1 = personal diary    = specialist    = dqn_agent
+  Brain 2 = shared notebook   = generalist    = global_dqn_agent
+
+  Same exam (6 inputs → 79 outputs)
+  Same classroom
+  Just DIFFERENT notebooks with DIFFERENT experiences written in them
+
+  Does this version make more sense? Don't worry about the 12 sources or file paths or rewards yet — just get comfortable with "personal diary vs shared notebook" first.
+
+❯ ok now explain the pending buffer part                                                                                                                                                                                          
+● The Pending Buffer — A Story                                                                                                                                                              
+  Think of it like a cricket match.                                                                                                                                                         
+  You're a BATSMAN. The coach watches you play every over (every 5 minutes).                                                                                                                                                                                                                                                                                                      
+  OVER 1: You play a shot.
+      Coach writes in his notebook:
+          "Akash was in THIS situation (state),
+           he played THIS shot (action),
+           result: ???  (don't know yet — ball is still in the air)"
+
+      ⏳ Wait for the ball to land...
+
+  OVER 2: The ball lands. Now coach can see what happened.
+      Coach writes:
+          "OK that shot gave him 4 runs (reward),
+           and now the field looks like THIS (next_state)"
+
+      Coach fills in the blanks from Over 1.
+      NOW it's a complete memory. Coach can teach from it.
+
+  ---
+  In Code Terms
+
+  ROUND 1 (5 minutes ago):
+  ─────────────────────────
+  AI looked at campaign ABC.
+  AI said: "Set boost to 50%"
+  AI saved to temp_buffer.pkl:
+
+      ┌─────────────────────────────────────────┐
+      │  campaign: ABC                          │
+      │  state:    [0.5, 0.1, 2.3, 4.0, ...]   │  ← what the world looked like
+      │  action:   50% boost                     │  ← what AI decided
+      │  reward:   ???                            │  ← DON'T KNOW YET
+      │  next_state: ???                          │  ← DON'T KNOW YET
+      └─────────────────────────────────────────┘
+
+      This is the "PENDING" part.
+      The ball is in the air. Waiting for result.
+
+
+      ⏳ 5 minutes pass... Amazon collects new data...
+
+
+  ROUND 2 (right now):
+  ─────────────────────────
+  New SQL data comes in. NOW we can see:
+      "After that 50% boost, CTR went up by 0.2, CPC is 1.8..."
+
+  So the code builds pending_buffer_update_data:
+
+      ┌─────────────────────────────────────────┐
+      │  campaign: ABC                          │
+      │  reward:     0.35                        │  ← NOW we know the grade!
+      │  next_state: [0.7, 0.2, 1.8, 5.0, ...]  │  ← NOW we see new world!
+      └─────────────────────────────────────────┘
+
+  ---
+  Then temp_buffer.update() merges them
+
+  FROM ROUND 1 (temp_buffer.pkl):
+      { state: [...], action: 50%, reward: ???, next_state: ??? }
+
+                +
+
+  FROM ROUND 2 (pending_buffer_update_data):
+      { reward: 0.35, next_state: [0.7, 0.2, ...] }
+
+                ↓  MERGE
+
+  COMPLETE MEMORY:
+      { state: [...], action: 50%, reward: 0.35, next_state: [0.7, 0.2, ...] }
+                                     ✅              ✅
+      Blanks filled! This moves to replay_buffer.pkl (permanent memory)
+
+  ---
+  Why can't we just calculate the reward immediately?
+
+  Because the AI needs to SEE THE RESULT of its action.
+
+  It's like ordering food online:
+
+      ROUND 1: You order biryani (action)
+               Rating: ???  (food hasn't arrived yet!)
+
+      ROUND 2: Food arrives. You taste it.
+               Rating: 4 stars (reward!)
+
+      You CAN'T rate the food before eating it.
+      You CAN'T rate the boost before seeing what it did to CTR.
+
+  ---
+  The 3 stages of a memory
+
+  STAGE 1 — temp_buffer (baby memory, incomplete)
+  ┌───────────────────────────────────────┐
+  │  state: ✅   action: ✅               │
+  │  reward: ❌   next_state: ❌           │
+  │                                       │
+  │  "I did something, waiting for result"│
+  └───────────────────────────────────────┘
+            │
+            │  next round, temp_buffer.update()
+            ▼
+  STAGE 2 — replay_buffer (adult memory, complete)
+  ┌───────────────────────────────────────┐
+  │  state: ✅   action: ✅               │
+  │  reward: ✅   next_state: ✅           │
+  │                                       │
+  │  "I know what I did and what happened"│
+  └───────────────────────────────────────┘
+            │
+            │  dqn_agent.train_step()
+            ▼
+  STAGE 3 — brain learns from it
+  ┌───────────────────────────────────────┐
+  │  "Next time I see a similar state,   │
+  │   I'll know if this action was good  │
+  │   or bad"                            │
+  └───────────────────────────────────────┘
+
+  ---
+  So the flow every round is:
+
+  1. NEW data arrives from SQL
+  2. Use new data to GRADE last round's actions (fill in reward + next_state)
+  3. Move completed memories to replay_buffer
+  4. Train brain on replay_buffer memories
+  5. Brain picks NEW actions for THIS round
+  6. Save THIS round's actions to temp_buffer (reward=???, next_state=???)
+  7. Wait 5 minutes...
+  8. Go back to step 1
+
+  Round 1: pick action → save (reward=???) → wait
+  Round 2: grade round 1 → train → pick action → save (reward=???) → wait
+  Round 3: grade round 2 → train → pick action → save (reward=???) → wait
+  Round 4: grade round 3 → train → pick action → save (reward=???) → wait
+  ...forever
+
+  Every round is GRADING the last round and ACTING for the current round. That's the "delayed grading" trick.
+
+  Does this make sense now?
+
+✻ Cooked for 35s
+
+❯ now explain the two rewards like which one goes where                                                                                                                                                                                          
+● Two Rewards — Which Goes Where                                                                                                                                                            
+  Remember the personal diary and shared notebook?                                                                                                                                          
+  SPECIALIST = personal diary    → gets REWARD #1 (simple)                                                                                                                                 GLOBAL     = shared notebook   → gets REWARD #2 (full)                                                                                                                                 
+
+  That's it. Now let me show you exactly how.
+
+  ---
+  REWARD #1 — Simple (Line 1405)
+
+  reward = CTRWEIGHT × DELTA_CTR + BUDGETWEIGHT × del_cvr
+
+  Only 2 ingredients:
+      "Did CTR improve?"    ← CTRWEIGHT switch
+      "Did conversions improve?"  ← BUDGETWEIGHT switch
+
+  Like grading a student on just 2 subjects:
+      Math + Science = your grade. That's it.
+
+  Where does it go?
+
+  ROUND 2 starts
+      │
+      ├── Build pending_buffer_update_data (line 1392)
+      │       reward = REWARD #1 (simple)
+      │       next_state = [6 numbers]
+      │
+      ├── temp_buffer.update() (line 1430)
+      │       Takes LAST round's incomplete memory from temp_buffer
+      │       Fills in reward + next_state using REWARD #1
+      │       Moves completed memory to replay_buffer
+      │
+      │       Which replay_buffer?
+      │       → SPECIALIST's replay_buffer (SPT_TOS_replay.pkl)
+      │
+      └── Later: dqn_agent.train_step()
+              Specialist brain learns from these memories
+              Specialist brain learned using SIMPLE grades
+
+  ---
+  REWARD #2 — Full (Line 1529)
+
+  reward = CTRWEIGHT × scaling_ctr(DELTA_CTR)
+         # + CONVWEIGHT × CTR_SHR × UNITS        ← commented out!
+         − CPCWEIGHT × COST
+         + CVRWEIGHT × scaling_cvr(cvr)
+         + BUDGETWEIGHT × del_cvr
+         − scale_imp(IMP_INC)
+
+  4 ingredients (one commented out):
+      "Did CTR improve?"           ← CTRWEIGHT switch
+      "How much did it cost?"      ← CPCWEIGHT switch
+      "Is conversion rate good?"   ← CVRWEIGHT switch
+      "Did conversions improve?"   ← BUDGETWEIGHT switch
+      "Impression penalty"         ← always on
+
+  Like grading on 4 subjects:
+      Math + Science + English + History = your grade. More detailed.
+
+  Where does it go?
+
+  ROUND 2, inside the action loop (line 1524-1562)
+      │
+      ├── Calculate REWARD #2 (full) for each campaign
+      │
+      ├── Save to global_pending_buffer_update_data (line 1549)
+      │       reward = REWARD #2 (full)
+      │       next_state = [6 numbers]
+      │
+      ├── global_temp_buffer.update() (line 1644)
+      │       Takes LAST round's incomplete memory from global_temp_buffer
+      │       Fills in reward + next_state using REWARD #2
+      │       Moves completed memory to GLOBAL replay_buffer
+      │
+      │       Which replay_buffer?
+      │       → GLOBAL's replay_buffer (global_replay.pkl)
+      │
+      └── Next round: global_dqn_agent.train_step()
+              Global brain learns from these memories
+              Global brain learned using DETAILED grades
+
+  ---
+  Side by Side
+
+                      SPECIALIST                    GLOBAL
+                      ──────────                    ──────
+  Reward:             SIMPLE (2 switches)           FULL (4 switches)
+
+  Formula:            CTRWEIGHT × DELTA_CTR         CTRWEIGHT × scaling_ctr(...)
+                      + BUDGETWEIGHT × del_cvr      − CPCWEIGHT × COST
+                                                    + CVRWEIGHT × scaling_cvr(...)
+                                                    + BUDGETWEIGHT × del_cvr
+                                                    − scale_imp(IMP_INC)
+
+  Stored in:          pending_buffer_update_data     global_pending_buffer_update_data
+
+  Filled by:          temp_buffer.update()           global_temp_buffer.update()
+
+  Goes to:            SPT_TOS_replay.pkl             global_replay.pkl
+
+  Brain learns:       dqn_agent.train_step()         global_dqn_agent.train_step()
+
+  ---
+  Why different rewards?
+
+  Think of it like two different report cards:
+
+  SPECIALIST report card (simple):
+      ┌─────────────────────────┐
+      │  Math:     A            │
+      │  Science:  B            │
+      │  ─────────────          │
+      │  Grade:    B+           │
+      └─────────────────────────┘
+      Quick and simple. Good enough for an expert
+      who already knows their domain well.
+
+  GLOBAL report card (full):
+      ┌─────────────────────────┐
+      │  Math:     A            │
+      │  Science:  B            │
+      │  English:  C            │
+      │  History:  A            │
+      │  Penalty:  -5           │
+      │  ─────────────          │
+      │  Grade:    B            │
+      └─────────────────────────┘
+      More detailed. The global brain needs more
+      info because it handles EVERYTHING.
+
+  ---
+  Timeline of one round
+
+  DATA ARRIVES FROM SQL
+      │
+      │  ① Build REWARD #1 (simple) for each campaign
+      │     → pending_buffer_update_data
+      │
+      │  ② temp_buffer.update()
+      │     → fill last round's blanks with REWARD #1
+      │     → completed memories go to SPECIALIST replay buffer
+      │
+      │  ③ Train BOTH brains (100 iterations each)
+      │     → specialist learns from its replay buffer (REWARD #1 grades)
+      │     → global learns from its replay buffer (REWARD #2 grades from LAST round)
+      │
+      │  ④ For each campaign:
+      │     → calculate REWARD #2 (full)
+      │     → save to global_pending_buffer_update_data
+      │     → pick action (ask specialist or global based on switch)
+      │     → save action to temp_buffer (reward=???)
+      │
+      │  ⑤ global_temp_buffer.update()
+      │     → fill last round's blanks with REWARD #2
+      │     → completed memories go to GLOBAL replay buffer
+      │
+      │  ⑥ Push new boosts to Amazon
+      │
+  WAIT 5 MINUTES → REPEAT
+
+  Clear now?
+
+✻ Baked for 33s
+
+❯ now explain the to_store_buffer part why only minutes 0-3                                                                                                                                                                                          
+● to_store_buffer — Why Only Minutes 0-3?                                                                                                                                                   
+  to_store_buffer = True if pst_time().minute <= 3 else False                                                                                                                               
+  Remember the monitor concept from earlier sessions?                                                                                                                                                                                                                                                                                                                             
+  At :00 minutes → monitor = False → ALL campaigns are processed
+  At :01-:59     → monitor = True  → only STRUGGLING campaigns (DELTA_CTR <= 0)
+
+  Now think about what happens:
+
+  At :00 → EVERY campaign gets processed (full batch, maybe 200 campaigns)
+  At :05 → only struggling ones (maybe 30 campaigns)
+  At :10 → only struggling ones (maybe 25 campaigns)
+  At :15 → only struggling ones (maybe 40 campaigns)
+  ...
+  At :55 → only struggling ones (maybe 20 campaigns)
+  At :00 → EVERY campaign again (full batch)
+
+  ---
+  The Problem Without This Filter
+
+  :00 → AI processes ALL 200 campaigns → saves 200 memories
+  :05 → AI processes only 30 struggling ones → saves 30 memories
+  :10 → AI processes only 25 struggling ones → saves 25 memories
+  :15 → AI processes only 40 struggling ones → saves 40 memories
+  ...
+
+  After a full hour:
+      200 complete memories (from :00)
+      + 300 struggling-only memories (from :05 to :55)
+      = 500 total memories
+
+  BUT 300 of those are ONLY about struggling campaigns!
+
+  The brain's notebook would be full of bad students' data:
+
+  WITHOUT the filter:
+  ┌────────────────────────────────────────────┐
+  │  replay_buffer.pkl                         │
+  │                                            │
+  │  memory: campaign doing BADLY   ← from :05 │
+  │  memory: campaign doing BADLY   ← from :10 │
+  │  memory: campaign doing BADLY   ← from :15 │
+  │  memory: campaign doing BADLY   ← from :20 │
+  │  memory: campaign doing WELL    ← from :00 │
+  │  memory: campaign doing BADLY   ← from :25 │
+  │  memory: campaign doing BADLY   ← from :30 │
+  │  ...                                       │
+  │                                            │
+  │  80% of memories = struggling campaigns!   │
+  │  Brain thinks: "everything is always bad"  │
+  │  Brain becomes PESSIMISTIC and BIASED      │
+  └────────────────────────────────────────────┘
+
+  ---
+  The Fix: Only Save at Minutes 0-3
+
+  :00 → ALL campaigns processed → to_store_buffer = True  → SAVE ✅
+  :01 → struggling only         → to_store_buffer = True  → SAVE ✅
+  :02 → struggling only         → to_store_buffer = True  → SAVE ✅
+  :03 → struggling only         → to_store_buffer = True  → SAVE ✅
+  :04 → struggling only         → to_store_buffer = False → DON'T SAVE ❌
+  :05 → struggling only         → to_store_buffer = False → DON'T SAVE ❌
+  :10 → struggling only         → to_store_buffer = False → DON'T SAVE ❌
+  ...
+  :55 → struggling only         → to_store_buffer = False → DON'T SAVE ❌
+  :00 → ALL campaigns again     → to_store_buffer = True  → SAVE ✅
+
+  WITH the filter:
+  ┌────────────────────────────────────────────┐
+  │  replay_buffer.pkl                         │
+  │                                            │
+  │  memory: campaign doing WELL    ← from :00 │
+  │  memory: campaign doing WELL    ← from :00 │
+  │  memory: campaign doing BADLY   ← from :01 │
+  │  memory: campaign doing WELL    ← from :00 │
+  │  memory: campaign doing BADLY   ← from :02 │
+  │  memory: campaign doing WELL    ← from :00 │
+  │  ...                                       │
+  │                                            │
+  │  BALANCED mix of good and bad!             │
+  │  Brain learns from BOTH success and failure│
+  └────────────────────────────────────────────┘
+
+  ---
+  But the AI still ACTS at every minute!
+
+  Important — to_store_buffer only controls saving memories, not taking actions:
+
+  :00 → Process ALL → Pick actions → Push to Amazon → SAVE memories    ✅
+  :05 → Struggling  → Pick actions → Push to Amazon → DON'T save       ❌
+  :10 → Struggling  → Pick actions → Push to Amazon → DON'T save       ❌
+  :15 → Struggling  → Pick actions → Push to Amazon → DON'T save       ❌
+
+  The AI still WORKS every 5 minutes.
+  It still CHANGES bids/boosts on Amazon.
+  It just doesn't REMEMBER those rounds.
+
+  Like a doctor who treats every patient,
+  but only writes case notes for the first few of the day.
+  Still treating, just not documenting.
+
+  ---
+  Why minutes 0 to 3 (not just 0)?
+
+  :00 → ALL campaigns processed (monitor=False)
+  :01 → monitor kicks in (only struggling)
+  :02 → still monitor mode
+  :03 → still monitor mode
+
+  Minutes 1-3 give a few extra rounds of "struggling only" data.
+  This way the brain gets:
+      - The FULL picture from :00
+      - Plus a small sample of "what happened right after" from :01-:03
+      - But NOT the flood of struggling-only data from :04-:59
+
+  It's a balance — not just the :00 snapshot, but a tiny window after it too.
+
+  Does this click?
+
+❯ now explain the random_number and bouncer part                                                                                                                                                                                          
+● The Random Number / Bouncer — Line 1385-1389                                                                                                                                              
+  random_number = (                                                                                                                                                                            np.random.uniform(-0.01, 0.1)
+      if pst_time() > pst_date() + timedelta(hours=2)                                                                                                                                          else -1                                                                                                                                                                            
+  )
+
+  ---
+  First, when does each case happen?
+
+  pst_date() + timedelta(hours=2) = today at 2:00 AM Pacific
+
+  Before 2 AM:  random_number = -1
+  After 2 AM:   random_number = random between -0.01 and 0.1
+
+  ---
+  Where is this random_number used?
+
+  It shows up in the filter (line 1416-1418):
+
+  r.get("ALL_PLC_IMP", 0) / max(total_imp, 1) >= random_number
+
+  Let me translate:
+
+  ALL_PLC_IMP = this campaign's impressions across all placements
+  total_imp   = total impressions across ALL campaigns
+
+  So: ALL_PLC_IMP / total_imp = this campaign's SHARE of total impressions
+
+  Think of it like a pizza:
+
+  Total pizza = 1000 impressions (total_imp)
+
+  Campaign A got 300 impressions → share = 300/1000 = 0.30 (30%)
+  Campaign B got 50 impressions  → share = 50/1000  = 0.05 (5%)
+  Campaign C got 5 impressions   → share = 5/1000   = 0.005 (0.5%)
+  Campaign D got 0 impressions   → share = 0/1000   = 0.00 (0%)
+
+  ---
+  The Bouncer Check
+
+  "Is your pizza share >= random_number?"
+
+  If random_number = 0.06 this round:
+
+  Campaign A: 0.30 >= 0.06?  → YES, come in  ✅
+  Campaign B: 0.05 >= 0.06?  → NO, go home   ❌
+  Campaign C: 0.005 >= 0.06? → NO, go home   ❌
+  Campaign D: 0.00 >= 0.06?  → NO, go home   ❌
+
+  Small campaigns get kicked out. The bouncer only lets in campaigns that have a meaningful share of impressions.
+
+  ---
+  Why RANDOM? Why not a fixed number?
+
+  If the threshold was always 0.05:
+      Campaign B (0.05) would NEVER get in
+      It would NEVER be trained on
+      The AI would NEVER learn about it
+
+  With RANDOM (between -0.01 and 0.1):
+      Sometimes threshold = 0.02 → Campaign B gets in  ✅
+      Sometimes threshold = 0.08 → Campaign B stays out ❌
+      Sometimes threshold = 0.06 → Campaign B stays out ❌
+      Sometimes threshold = 0.01 → Campaign B gets in  ✅
+
+      Campaign B gets in SOMETIMES — not always, not never
+
+  It's like a lottery bouncer:
+
+  Big campaigns (30% share):    get in almost EVERY time
+  Medium campaigns (5% share):  get in SOME times
+  Tiny campaigns (0.5% share):  get in RARELY
+  Zero campaigns (0% share):    almost never get in
+
+  This way the brain mostly focuses on important campaigns but doesn't completely ignore the small ones.
+
+  ---
+  Before 2 AM — Everyone Gets In
+
+  Before 2 AM: random_number = -1
+
+  Campaign A: 0.30 >= -1?  → YES  ✅
+  Campaign B: 0.05 >= -1?  → YES  ✅
+  Campaign C: 0.005 >= -1? → YES  ✅
+  Campaign D: 0.00 >= -1?  → YES  ✅
+
+  EVERYONE passes. No filtering at all.
+
+  Why? Because before 2 AM, there's probably not enough data yet for the day. Impressions are low across the board. Filtering would kick out too many campaigns unfairly.
+
+  After 2 AM, enough data has built up, so the bouncer starts doing his job.
+
+  ---
+  But wait — SPT and SV don't even use this!
+
+  Remember from the caller:
+
+  deep_q_sp() calls with:     total_imp = actual number
+  deep_q_spt() calls with:    total_imp = None (not passed)
+  deep_q_videos_placement():  total_imp = None (not passed)
+
+  And look at the filter (line 1417):
+
+  (total_imp is None)
+  or (r.get("ALL_PLC_IMP", 0) / max(total_imp, 1) >= random_number)
+
+  total_imp is None → True → SKIP the bouncer check → EVERYONE gets in
+
+  So:
+      SP  → bouncer is ACTIVE (has total_imp)
+      SPT → bouncer is OFF (total_imp is None, everyone gets in)
+      SV  → bouncer is OFF (total_imp is None, everyone gets in)
+
+  Only SP uses the bouncer. Probably because SP has the most campaigns and needs filtering. SPT and SV have fewer campaigns so no need.
+
+  ---
+  Full Picture
+
+                      Is it after 2 AM?
+                      ┌──────┴──────┐
+                     YES            NO
+                      │              │
+              random = 0.01~0.1   random = -1
+                      │              │
+                      │         Everyone gets in
+                      │
+                Is total_imp None?
+                ┌──────┴──────┐
+               YES            NO
+                │              │
+          Everyone          Bouncer checks:
+          gets in           "campaign share >= random?"
+          (SPT, SV)              │
+                           ┌─────┴─────┐
+                          YES          NO
+                           │            │
+                        Gets in     Kicked out
+                        (processed)  (skipped)
+                          (SP)        (SP)
+
+  Clear?
+
+✻ Baked for 35s
+
+❯ now explain the boost >= 3 filter                                                                                                                                                                                          
+● BOOST >= 3 Filter — Line 1415                                                                                                                                                             
+  if r["BOOST"] >= 3                                                                                                                                                                        
+  ---                                                                                                                                                                                      First, what IS boost?                                                                                                                                                                  
+
+  Boost is the placement bid multiplier on Amazon. It's a percentage that increases your base bid for a specific placement.
+
+  Example:
+      Base bid = $1.00
+      Boost = 50%  (stored as 50 in Amazon)
+
+      Actual bid for that placement = $1.00 + (50% of $1.00) = $1.50
+
+  But in the code, boost is stored differently. Let me check what the values mean.
+
+  The minimum boost Amazon allows is 0% (no boost). The code stores boost values where:
+
+  BOOST value in code:
+      0   = campaign is basically OFF or paused for this placement
+      1   = very low
+      2   = very low
+      3   = MINIMUM active level (like the starting point)
+      50  = 50% boost
+      100 = 100% boost (double the base bid)
+      900 = 900% boost (max Amazon allows)
+
+  ---
+  Why filter BOOST >= 3?
+
+  BOOST < 3 means:
+      The campaign has almost NO boost on this placement.
+      It's basically TURNED OFF for this placement.
+      Either intentionally paused or set to minimum.
+
+      Why would the AI waste time optimizing something
+      that's turned off?
+
+  Think of it like a light switch:
+
+  BOOST < 3  →  Light is OFF
+                 Don't bother adjusting the brightness.
+                 Skip it.
+
+  BOOST >= 3 →  Light is ON
+                 OK now we can adjust the brightness up or down.
+                 Let the AI optimize.
+
+  ---
+  Where does this filter appear?
+
+  It shows up THREE times in the function:
+
+  LINE 1415 — Pending buffer (grading last round)
+      "Only grade campaigns that were ACTIVE last round"
+
+      if r["BOOST"] >= 3    ← was the light on?
+          → YES: grade it, fill in reward + next_state
+          → NO:  skip it, nothing to grade
+
+  LINE 1524 — Full reward calculation (for global brain)
+      "Only calculate reward for ACTIVE campaigns"
+
+      if row["BOOST"] >= 3  ← is the light on?
+          → YES: calculate full reward, save for global brain
+          → NO:  skip it
+
+  LINE 1564 — Action selection (picking new boost)
+      "Only pick new boosts for ACTIVE campaigns"
+
+      if row["BOOST"] >= 3  ← is the light on?
+          → YES: ask brain for new boost, push to Amazon
+          → NO:  skip it, leave it alone
+
+  ---
+  Simple version
+
+  BOOST >= 3:  "This campaign is ACTIVE on this placement. Process it."
+  BOOST < 3:   "This campaign is basically OFF. Leave it alone."
+
+  It's a safety check:
+      Don't grade something that wasn't playing.
+      Don't optimize something that's turned off.
+      Don't waste brain power on inactive campaigns.
+
+  That's it. Nothing complicated — just an ON/OFF check.
+
+
+The 8 Steps — One by One with a Story                                                                                                                                                  
+                                                                                                                                                                                           Think of the whole thing as a cricket coach's routine every 5 minutes.                                                                                                                                                                                                                                                                                                          
+  ---                                                                                                                                                                                    
+  Step 1: OPEN LOCKERS
+
+  Coach arrives at the ground.
+  Opens TWO lockers:
+
+  LOCKER 1 (Specialist): "SPT_TOS" locker
+      → policy_model.pth    (specialist brain)
+      → target_model.pth    (specialist helper brain)
+      → replay_buffer.pkl   (specialist's old memories)
+      → temp_buffer.pkl     (specialist's pending grades from last round)
+
+  LOCKER 2 (Global): "GLOBAL" locker
+      → same 4 files but shared across everyone
+
+  Total = 8 file paths
+
+  ---
+  Step 2: GRADE LAST ROUND
+
+  Last round (5 mins ago), the coach told batsman: "Play a sweep shot"
+  But coach didn't know if it worked yet.
+
+  NOW the scorecard arrived. Coach can see:
+      "That sweep shot gave 4 runs and CTR went up!"
+
+  So coach:
+      1. Builds the grade (REWARD #1 — simple, 2 weights)
+      2. Fills in last round's blank entry in temp_buffer
+      3. Moves the completed memory to replay_buffer (permanent)
+
+      BEFORE: {state, action, reward: ???, next: ???}
+      AFTER:  {state, action, reward: 0.35, next: [new data]}  → moves to replay_buffer
+
+  ---
+  Step 3: CREATE 2 BRAINS
+
+  Coach calls two assistants:
+
+  ASSISTANT 1: Specialist (dqn_agent)
+      "You only study SPT_TOS data. You're the expert."
+      Loads SPT_TOS brain files.
+
+  ASSISTANT 2: Generalist (global_dqn_agent)
+      "You study EVERYONE's data. You've seen it all."
+      Loads GLOBAL brain files.
+
+  ---
+  Step 4: TRAIN BOTH
+
+  Both assistants sit down and study their notebooks.
+
+  Specialist: reads SPT_TOS replay_buffer → learns 100 times
+  Generalist: reads GLOBAL replay_buffer → learns 100 times
+
+  Like studying for an exam. 100 practice questions each.
+  Both get smarter.
+
+  ---
+  Step 5: FOR EACH CAMPAIGN — This is the BIG step
+
+  Now coach looks at each campaign one by one:
+
+  CAMPAIGN ABC:
+      │
+      ├── A) Calculate REWARD #2 (full, 4 weights)
+      │      This is a MORE DETAILED grade for the global brain.
+      │      Saved to global_pending_buffer_update_data.
+      │      (Will be used NEXT round to grade the global brain)
+      │
+      ├── B) Ask brain: "What should we do?"
+      │      Check COMBINEDDEEPQSWITCH:
+      │          = 0 → ask specialist
+      │          = 1 → ask generalist
+      │      Brain says: "action 42"
+      │
+      │      Since this is a PLACEMENT engine:
+      │          action 42 → bid $8.70 → boost = calculate from base bid
+      │
+      │      (If this was a BID engine:
+      │          action 42 → bid $8.70 → push $8.70 directly)
+      │
+      ├── C) Apply safety caps
+      │      "Brain said boost 200%, but max allowed is 150%"
+      │      → cap to 150%
+      │      "Brain said boost 2%, but min allowed is 10%"
+      │      → cap to 10%
+      │
+      ├── D) Apply CVR safety valve
+      │      "This campaign has terrible conversion rate"
+      │      → random chance to OVERRIDE brain and force boost = 3 (minimum)
+      │      Like a safety switch: even if brain says "go high",
+      │      if the campaign is wasting money, force it low
+      │
+      └── E) Save to temp_buffer
+             {state: [...], action: 42, reward: ???, next_state: ???}
+             Blanks again! Will be graded NEXT round (Step 2)
+
+  CAMPAIGN DEF:
+      └── same thing...
+
+  CAMPAIGN GHI:
+      └── same thing...
+
+  ... repeat for every campaign
+
+  ---
+  Step 6: UPDATE GLOBAL BUFFER
+
+  Remember Step 5A saved REWARD #2 for each campaign into
+  global_pending_buffer_update_data?
+
+  Now: global_temp_buffer.update()
+      → Takes LAST round's incomplete global memories
+      → Fills in reward (REWARD #2) + next_state
+      → Moves to global_replay_buffer (permanent)
+
+  Same delayed grading trick, but for the GLOBAL brain.
+
+  So:
+      Step 2 = fill blanks for SPECIALIST (using Reward #1)
+      Step 6 = fill blanks for GLOBAL (using Reward #2)
+
+  ---
+  Step 7: PUSH TO AMAZON
+
+  Now we have a list of new boosts/bids for all campaigns.
+  Time to actually TELL Amazon.
+
+  PLACEMENT engines (run_deep_q_for_sp_spt):
+      → This function does NOT push to Amazon itself
+      → It just RETURNS the boost_update_dict
+      → The CALLER (deep_q_sp / deep_q_spt / deep_q_videos_placement)
+        merges TOS + PP + ROS results and pushes
+
+      Why? Because Amazon wants ALL 3 placements in ONE API call:
+          "Campaign ABC: TOS=50%, PP=30%, ROS=20%"
+
+      This function only knows about ONE placement.
+      So the caller collects all 3 and sends together.
+
+  BID engines (deep_q_videos, deep_q_display, deep_q_sp_bid):
+      → Push directly from inside the function
+      → UPDATE_KEYWORDS_SB() or UPDATE_KEYWORDS_SP()
+
+      Why? Because bids are per KEYWORD, not per campaign.
+      No need to merge anything. Just send.
+
+  ---
+  Step 8: RETURN RESULTS
+
+  Function hands back 5 things to the caller:
+
+  1. boost_update_dict    → "these campaigns need new boosts"
+                            (caller uses this to push to Amazon)
+
+  2. log                  → "these campaigns got CVR overridden"
+                            (for debugging / monitoring)
+
+  3. avg_reward           → "average grade this round was 0.42"
+                            (logged to deepq_reward_table in DB)
+
+  4. reward_dist          → "histogram of all rewards"
+                            (for monitoring: are rewards healthy?)
+
+  5. loss_dict            → "training loss for both brains"
+                            (for monitoring: are brains learning?)
+
+  ---
+  The Whole Thing in a Timeline
+
+  :00 — Data arrives
+          │
+          ├── Step 1: Open lockers (8 files)
+          ├── Step 2: Grade last round (specialist gets Reward #1)
+          ├── Step 3: Create 2 brains
+          ├── Step 4: Train both brains (100 iterations)
+          ├── Step 5: Loop through each campaign:
+          │           → calculate Reward #2 (for global)
+          │           → pick action (boost)
+          │           → apply safety caps + CVR valve
+          │           → save to temp_buffer (reward=???)
+          ├── Step 6: Grade last round for global (Reward #2)
+          ├── Step 7: Return boosts → caller pushes to Amazon
+          └── Step 8: Return all results
+          │
+  :05 — New data arrives → repeat everything
+
