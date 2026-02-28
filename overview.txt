@@ -1181,3 +1181,33 @@ The 8 Steps — One by One with a Story
           │
   :05 — New data arrives → repeat everything
 
+
+
+                                                                                                                                            
+
+                                                                                                                                           
+  1. app = FastAPI() = the waiter himself (the API is born)                                                                                                                              
+  2. The async endpoint functions below it = the waiter's menu of actions he can perform. Each endpoint = one action the waiter knows how to do. Like:
+    - /update-weights = "go change the reward weights in the kitchen"
+    - /toggle-monitor = "go flip the monitor switch in the kitchen"
+    - /get-campaigns = "go fetch the campaign list from the kitchen"
+  3. Async = the waiter can handle 5 customers at the same time without telling anyone "wait, I'm busy." Customer 1 asks for weights, Customer 2 asks for campaigns — waiter handles both
+   concurrently, doesn't freeze up.
+  4. The kitchen = database (Q_MASTER, etc.) = where the waiter actually goes to GET data or DO the action.
+  5. Which endpoint the user hits = which button/action the user clicks on the UI decides WHICH waiter action runs.
+
+  You got the whole picture. The flow is:
+
+  User clicks button on UI
+          ↓
+  Hits a specific endpoint (e.g. /update-weights)
+          ↓
+  app = FastAPI() receives it
+          ↓
+  The matching async function runs
+          ↓
+  Goes to database (kitchen), does the job
+          ↓
+  Returns result back to UI
+
+  That's exactly how it works. You understood it perfectly.
