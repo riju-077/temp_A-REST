@@ -1,0 +1,214 @@
+
+
+
+
+## **Page 1**
+
+**3 Scenarios to Calculate CTR**
+
+| Scenario                         | Condition                      | CTR Value             | Why                                |
+| -------------------------------- | ------------------------------ | --------------------- | ---------------------------------- |
+| No one saw the ad                | impressions = 0                | 0                     | No data → no CTR                   |
+| People saw it but nobody clicked | impressions > 0 but clicks = 0 | (1 / impressions) - 1 | A small negative number as penalty |
+| Normal case                      | both > 0                       | clicks / impressions  | Standard CTR formula               |
+
+---
+
+**Example:**
+
+Impressions | Clicks | Formula used | CTR
+0 | 0 | 0 | 0
+100 | 0 | (1/100 - 1) | -0.99 (bad case, no clicks)
+100 | 5 | 5/100 | 0.05 (5% click rate)
+
+---
+
+**2nd case explanation:**
+
+Your ad was shown 100 times, but 0 people clicked.
+That’s bad. Instead of giving CTR = 0 (which looks like “no data”),
+it gives a negative number like -0.99 to tell AI:
+**“this keyword is performing badly”**
+
+---
+
+**Notes:**
+
+* `->` means THEN
+* `|` means OR
+* `,` means AND
+
+---
+
+**Conversion:**
+
+* Clicks = 100
+* 5 people bought
+  → conversion = 5
+  → Conversion 14D = 5
+
+---
+
+## **Page 2**
+
+Q) Does all the engine use all 6 of the state?
+
+For each campaign
+For each placement (TOS, PP, ROS)
+Observe performance
+Decide action (increase/decrease boost/placement/bids)
+
+---
+
+**Factors:**
+
+1. TOS imp of last hour
+2. PP imp
+3. ROS imp
+4. Hour of the day → current time
+5. Day of the week → today
+6. Product ASIN
+
+---
+
+**Metrics:**
+
+* Current CTR
+* Delta CTR
+* CPC
+* Current boost
+* Short imp (last 1 hr)
+* Long imp (last 72 hrs)
+
+---
+
+**Boost ⇒**
+
+* Current CTR
+* Delta CTR
+* CPC
+* total bid
+
+(13,377 → long imp) / 2 → 5.9555 = 6
+
+---
+
+**Bid:**
+
+* Current CTR
+* Delta CTR
+* CPC
+* keyword
+* prev CPC → curr CPC
+* campaign → spend budget
+
+---
+
+## **Page 3**
+
+Q) Does all the 6 engine use 6 of the state?
+Q) Using pyodbc for SQL connection here?
+Q) DeepQ master table added new column with -1 values
+as this table needed PP hourly target impression
+
+→ PPHourlyTargetImp
+
+---
+
+**Model types:**
+
+* Individual → PP, ROS, BID
+* Combined → PP
+
+---
+
+**Campaign types:**
+
+* SB
+* SPT
+* SD
+* SP
+
+---
+
+The campaign type parameter is what changes the access:
+
+* SP → opens SP_TOS, SP_PP, SP_ROS
+* SPT → opens SPT_TOS, SPT_PP, SPT_ROS
+* SB → opens loader SB_TOS, SB_PP, SB_ROS
+
+---
+
+Both are on the same table (as SP traffic), differentiate by match type:
+
+* Exact, Phrase, Broad → SP (keyword targeting)
+* Targeting Expression, Targeting Expression Predicted → SPT (product targeting)
+
+---
+
+## **Page 4**
+
+Imagine you own a shop on Amazon.
+You’re running ads for your product.
+Every ad has a bid — the amount you are willing to pay when someone clicks your ad.
+
+---
+
+* Bid too low → Amazon doesn’t show your ad → no sales
+* Bid too high → you pay too much per click → waste money
+* Just right → you get clicks, sales, and good profit
+
+---
+
+This is a robot that adjusts those bids every few minutes automatically 24/7.
+Uses RL (DQN) to learn over time which bids work best.
+
+---
+
+SB, SP, SD, …
+→ 3 remote controls (each one for Amazon ad type)
+→ 1 DB phone line
+
+---
+
+**Path:**
+
+* SP bid, PP TOS/PP/ROS
+* SPT TOS/PP/ROS
+* SB ROS/TOS/PP
+* SV, SD global
+
+---
+
+All the 13 models have their own brain with 4 things:
+
+* SV → learning “how to bid on sponsored video keywords”
+* SP_TOS → learning “how to boost SP ads on top of search”
+* SD → learning “how to bid on sponsored display targets”
+
+---
+
+(keyword bid)
+
+**Bidding:**
+
+* SP → deep q sp bid()
+* SV/SB → deep q video()
+* SPT → ???
+* SD → deep q display()
+
+---
+
+**Placement (TOS / PP / ROS) [boost where ads are shown]:**
+
+* deep q sp()
+* deep q video placement()
+* deep q spt()
+* ???
+
+---
+
+All these 3 functions use:
+→ run deep q for SP / SPT
+
+
